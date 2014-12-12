@@ -30,6 +30,16 @@
 // 1 Bar_Service - This is WARNING and has no performance data
 // 2 NotGood V=120;50;100;0;1000 A critical check
 
+// $ npm init
+// This utility will walk you through creating a package.json file.
+// It only covers the most common items, and tries to guess sane defaults.
+// 
+// See `npm help json` for definitive documentation on these fields
+// and exactly what they do.
+//
+// Use `npm install <pkg> --save` afterwards to install a package and
+// save it as a dependency in the package.json file.
+
 // TODO (Nice-to-have): make multiple databases possible
 // TODO (Normal); Prefix the local spool file with a configured time
 
@@ -39,11 +49,72 @@ var yaml = require('js-yaml');
 var mysql = require('mysql');
 
 // this is the output file that is sent to check_mk
-var spoolfile = "<<<local>>>\n";
+var spoolfileName = "testspoolfile";
+
+fs.writeFileSync(spoolfileName, "<<<local>>>\n");
+
+function toMySQLDateFormat(d) {
+        var result = d.getFullYear() + "-";
+        if (d.getMonth() + 1 < 10) result += "0"
+        result += d.getMonth() + 1 + "-";
+        if (d.getDate() < 10) result += "0"
+        result += d.getDate();
+        return result;
+}
 
 // TODO: Messed up variables, so check JS scopes again
 function addLineToSpoolfile(status, itemname, performanceData, checkOutput) {
-  spoolfile += status + ' ' + itemname + ' ' + performanceData + ' ' + checkOutput + '\n';
+  var spoolfileLine = (status + ' ' + itemname + ' ' + performanceData + ' ' + checkOutput + '\n');
+  fs.appendFile(spoolfileName, spoolfileLine, function (err) {
+    if (err) throw err;
+  });
+}
+
+function testQuery(err, rows, fields) {
+  if (err) throw err;
+  // util.debug('rows: ' + util.inspect(rows));
+  // util.debug('fields: ' + util.inspect(fields));
+  // rows: [ { id: 1, sometext: 'bla' }, { id: 2, sometext: 'blubb' } ]
+
+  // loop through resultset rows
+  for (var rownum = 0; rownum < rows.length; rownum++) {
+    util.debug('Testing rownum: ' + rownum);
+    
+    // loop through Critical conditions
+    for (var k = 0; k < YAMLPartParsed['Critical'].length; k++) {
+      
+      // try Critical conditions
+      
+      // parse condition
+      var condition = YAMLPartParsed['Critical'][k].split(' ');
+      var columnNameToTest = condition[0];
+      var operatorToTest = condition[1];
+      var operandToTest = condition[2];
+      
+      // TEST: malformed condition
+
+      // TODO: if operandToTest is LASTVALUE, replace accordingly
+
+      // get column value from database
+      var actualValueFromRows = rows[rownum][columnNameToTest];
+      
+      // test condition
+      if (operatorToTest == '<') {
+        util.debug(actualValueFromRows + ' < ' + operandToTest + ' -> ' + (actualValueFromRows < operandToTest));
+        if (actualValueFromRows < operandToTest) {
+          // TODO (Business Critical): No spaces allowed in performanceData, so clean up actualValueFromFrowRows
+          addLineToSpoolfile(2, 'TODO:continueHereAndConfigureNameInConfigFileAndKeepMultipleRowsInMind', columnNameToTest + '=' + actualValueFromRows, columnNameToTest + '=' + actualValueFromRows);
+        }
+      } else if (operatorToTest == '>') {
+        util.debug(actualValueFromRows + ' > ' + operandToTest + ' -> ' + (actualValueFromRows > operandToTest));
+      } else if (operatorToTest == '=') {
+        util.debug(actualValueFromRows + ' = ' + operandToTest + ' -> ' + (actualValueFromRows == operandToTest));
+      }
+      
+      // TEST: type conversions
+      
+    }
+  }
 }
 
 // Read config file
@@ -71,7 +142,7 @@ queryFilesArray.sort();
 for (var i = 0; i < queryFilesArray.length; i++) {
   
   // convert filename into checkname (strip ordering and extension)
-  var filename = queryFilesArray[i]
+  var filename = queryFilesArray[i];
   var prefixEnd = (filename.indexOf('_') == -1) ? 0 : filename.indexOf('_') + 1;
   var extensionStart = (filename.lastIndexOf('.') == -1) ? filename.length : filename.lastIndexOf('.');
   var cleanedFilename = filename.slice(prefixEnd, extensionStart);
@@ -98,57 +169,8 @@ for (var i = 0; i < queryFilesArray.length; i++) {
   }
   
   // execute SQL stmt
-  connection.query(queryFile, function(err, rows, fields) {
-    if (err) throw err;
-    // util.debug('rows: ' + util.inspect(rows));
-    // util.debug('fields: ' + util.inspect(fields));
-    // rows: [ { id: 1, sometext: 'bla' }, { id: 2, sometext: 'blubb' } ]
-
-    // loop through resultset rows
-    for (var rownum = 0; rownum < rows.length; rownum++) {
-      util.debug('Testing rownum: ' + rownum);
-      
-      // loop through Critical conditions
-      for (var k = 0; k < YAMLPartParsed['Critical'].length; k++) {
-        
-        // try Critical conditions
-        
-        // parse condition
-        var condition = YAMLPartParsed['Critical'][k].split(' ');
-        var columnNameToTest = condition[0];
-        var operatorToTest = condition[1];
-        var operandToTest = condition[2]
-        
-        // TEST: malformed condition
-
-        // TODO: if operandToTest is LASTVALUE, replace accordingly
-
-        // get column value from database
-        var actualValueFromRows = rows[rownum][columnNameToTest];
-        
-        // test condition
-        
-        if (operatorToTest == '<') {
-          util.debug(actualValueFromRows + ' < ' + operandToTest + ' -> ' + (actualValueFromRows < operandToTest));
-          if (actualValueFromRows < operandToTest) {
-            // TODO (Business Critical): No spaces allowed in performanceData, so clean up actualValueFromFrowRows
-            addLineToSpoolfile(2, 'TODO:continueHereAndConfigureNameInConfigFileAndKeepMultipleRowsInMind', columnNameToTest + '=' + actualValueFromRows, columnNameToTest + '=' + actualValueFromRows);
-          }
-        } else if (operatorToTest == '>') {
-          util.debug(actualValueFromRows + ' > ' + operandToTest + ' -> ' + (actualValueFromRows > operandToTest));
-        } else if (operatorToTest == '=') {
-          util.debug(actualValueFromRows + ' = ' + operandToTest + ' -> ' + (actualValueFromRows == operandToTest));
-        }
-        
-        // TEST: type conversions
-        
-      }
-    }
-  });
+  connection.query(queryFile, testQuery);
   
-  // write Check_MK file
-  util.debug('Spoolfile:\n' + spoolfile);
 }
 
 connection.end();
-
