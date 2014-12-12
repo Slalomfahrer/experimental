@@ -1,0 +1,29 @@
+{
+  "name": "squerier",
+  "version": "0.1.0",
+  "description": "A check_MK compatible script to execute arbitrary SQL queries as checks",
+  "main": "squerier.js",
+  "dependencies": {
+    "js-yaml": "^3.2.3",
+    "mysql": "^2.5.3"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Slalomfahrer/experimental.git"
+  },
+  "keywords": [
+    "sql",
+    "monitoring",
+    "check"
+  ],
+  "author": "Slalomfahrer",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Slalomfahrer/experimental/issues"
+  },
+  "homepage": "https://github.com/Slalomfahrer/experimental"
+}
