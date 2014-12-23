@@ -9,7 +9,7 @@
   },
   "devDependencies": {},
   "scripts": {
-    "test": "test"
+    "setup-example-config": "scripts/setup-example-config.sh"
   },
   "repository": {
     "type": "git",

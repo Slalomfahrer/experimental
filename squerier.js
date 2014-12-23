@@ -40,6 +40,9 @@
 // Use `npm install <pkg> --save` afterwards to install a package and
 // save it as a dependency in the package.json file.
 
+// Install examples: sudo npm run-script setup-example-config
+// Cleanup: sudo rm -rf /etc/squerier/
+
 // TODO (Nice-to-have): make multiple databases possible
 // TODO (Normal); Prefix the local spool file with a configured time
 
@@ -55,14 +58,13 @@ fs.writeFileSync(spoolfileName, "<<<local>>>\n");
 
 function toMySQLDateFormat(d) {
         var result = d.getFullYear() + "-";
-        if (d.getMonth() + 1 < 10) result += "0"
+        if (d.getMonth() + 1 < 10) result += "0";
         result += d.getMonth() + 1 + "-";
-        if (d.getDate() < 10) result += "0"
+        if (d.getDate() < 10) result += "0";
         result += d.getDate();
         return result;
 }
 
-// TODO: Messed up variables, so check JS scopes again
 function addLineToSpoolfile(status, itemname, performanceData, checkOutput) {
   var spoolfileLine = (status + ' ' + itemname + ' ' + performanceData + ' ' + checkOutput + '\n');
   fs.appendFile(spoolfileName, spoolfileLine, function (err) {
@@ -70,50 +72,70 @@ function addLineToSpoolfile(status, itemname, performanceData, checkOutput) {
   });
 }
 
-function testQuery(err, rows, fields) {
+// provide itemname to testQuery function
+function testQueryFor(itemname) {
+  return function(err, rows, fields) {
+    testQuery(err, rows, fields, itemname);
+  };
+}
+
+function testQuery(err, rows, fields, itemname) {
   if (err) throw err;
   // util.debug('rows: ' + util.inspect(rows));
   // util.debug('fields: ' + util.inspect(fields));
   // rows: [ { id: 1, sometext: 'bla' }, { id: 2, sometext: 'blubb' } ]
 
-  // loop through resultset rows
-  for (var rownum = 0; rownum < rows.length; rownum++) {
-    util.debug('Testing rownum: ' + rownum);
+  
+  // test for exactly 1 row
+  if (rows.length != 1) {
+    addLineToSpoolfile(3, itemname, '', 'Resultset has ' + rows.length + ' rows , MUST have exactly 1 row');
+    return;
+  }
+
+
+  // prepare performance data
+  var performanceData = '';
+  for (var i = 0; i < fields.length; i++) {
+    util.debug(fields[i].table + '.' + fields[i].name + '=' + rows[0][fields[i].name]);
+    //values[fields[i]] = rows[0][fields[i]];
+    // TODO: remove spaces
+    performanceData += fields[i].table + '.' + fields[i].name + '=' + rows[0][fields[i].name] + '|';
+  }
+  
+
+  // loop through Critical conditions
+  for (var k = 0; k < YAMLPartParsed['Critical'].length; k++) {
     
-    // loop through Critical conditions
-    for (var k = 0; k < YAMLPartParsed['Critical'].length; k++) {
-      
-      // try Critical conditions
-      
-      // parse condition
-      var condition = YAMLPartParsed['Critical'][k].split(' ');
-      var columnNameToTest = condition[0];
-      var operatorToTest = condition[1];
-      var operandToTest = condition[2];
-      
-      // TEST: malformed condition
+    // try Critical conditions
+    
+    // parse condition
+    var condition = YAMLPartParsed['Critical'][k].split(' ');
+    var columnNameToTest = condition[0];
+    var operatorToTest = condition[1];
+    var operandToTest = condition[2];
+    
+    // TEST: malformed condition
 
-      // TODO: if operandToTest is LASTVALUE, replace accordingly
+    // TODO: if operandToTest is LASTVALUE, replace accordingly
 
-      // get column value from database
-      var actualValueFromRows = rows[rownum][columnNameToTest];
-      
-      // test condition
-      if (operatorToTest == '<') {
-        util.debug(actualValueFromRows + ' < ' + operandToTest + ' -> ' + (actualValueFromRows < operandToTest));
-        if (actualValueFromRows < operandToTest) {
-          // TODO (Business Critical): No spaces allowed in performanceData, so clean up actualValueFromFrowRows
-          addLineToSpoolfile(2, 'TODO:continueHereAndConfigureNameInConfigFileAndKeepMultipleRowsInMind', columnNameToTest + '=' + actualValueFromRows, columnNameToTest + '=' + actualValueFromRows);
-        }
-      } else if (operatorToTest == '>') {
-        util.debug(actualValueFromRows + ' > ' + operandToTest + ' -> ' + (actualValueFromRows > operandToTest));
-      } else if (operatorToTest == '=') {
-        util.debug(actualValueFromRows + ' = ' + operandToTest + ' -> ' + (actualValueFromRows == operandToTest));
+    // get column value from database
+    var actualValueFromRows = rows[0][columnNameToTest];
+    
+    // test condition
+    if (operatorToTest == '<') {
+      util.debug(actualValueFromRows + ' < ' + operandToTest + ' -> ' + (actualValueFromRows < operandToTest));
+      if (actualValueFromRows < operandToTest) {
+        // TODO (Business Critical): No spaces allowed in performanceData, so clean up actualValueFromFrowRows
+        addLineToSpoolfile(2, 'TODO:continueHereAndConfigureNameInConfigFileAndKeepMultipleRowsInMind', performanceData, columnNameToTest + '=' + actualValueFromRows);
       }
-      
-      // TEST: type conversions
-      
+    } else if (operatorToTest == '>') {
+      util.debug(actualValueFromRows + ' > ' + operandToTest + ' -> ' + (actualValueFromRows > operandToTest));
+    } else if (operatorToTest == '=') {
+      util.debug(actualValueFromRows + ' = ' + operandToTest + ' -> ' + (actualValueFromRows == operandToTest));
     }
+    
+    // TEST: type conversions
+    
   }
 }
 
@@ -169,8 +191,9 @@ for (var i = 0; i < queryFilesArray.length; i++) {
   }
   
   // execute SQL stmt
-  connection.query(queryFile, testQuery);
+  connection.query(queryFile, testQueryFor(cleanedFilename));
   
 }
+
 
 connection.end();

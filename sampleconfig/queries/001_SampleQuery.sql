@@ -5,11 +5,8 @@ FROM test;
 Critical:
   - id = 1
   - id < 2
-  - id > 0
   - sometext = 1
-  - sometext = bla 
 Warning:
-  - sometext = blub
+  - id > 0
 ---
 */
-  
