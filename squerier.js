@@ -45,16 +45,18 @@
 
 // TODO (Nice-to-have): make multiple databases possible
 // TODO (Normal); Prefix the local spool file with a configured time
+// TODO: Test all conditions via sample queries
+TODO see above
 
 var fs = require('fs');
 var util = require('util');
 var yaml = require('js-yaml');
 var mysql = require('mysql');
 
-// this is the output file that is sent to check_mk
-var spoolfileName = "testspoolfile";
-
-fs.writeFileSync(spoolfileName, "<<<local>>>\n");
+var OK = 0;
+var WARNING = 1;
+var CRITICAL = 2;
+var UNKNOWN = 3;
 
 function toMySQLDateFormat(d) {
         var result = d.getFullYear() + "-";
@@ -79,11 +81,79 @@ function testQueryFor(itemname) {
   };
 }
 
+/*
+  returns {
+    status: 
+    checkOutput:
+  }
+*/
+function testCheck(check, row, fields, expectedStatus) {
+  
+  // split check in 3
+  var checkParts = check.split(' ');
+  var columnNameToTest = checkParts[0];
+  var operatorToTest = checkParts[1];
+  var operandToTest = checkParts[2];
+  
+  // TEST: malformed check
+  // IDEA: new Error('something bad happened');
+  // IDEA: assert.equal(typeof (timeout), 'number', "argument 'timeout' must be a number");
+
+
+  // split columnname if it contains .
+  var columnParts = columnNameToTest.split('.');
+  var tableName;
+  var columnName;
+  var actualValue;
+  
+  
+  // get actual value from row
+  if (columnParts.length == 1) {
+    columnName = columnParts[0];
+    // no table name given, so take the first column name that matches
+    for (tableName in row) {
+      if (row[tableName][columnName]) {
+        actualValue = row[tableName][columnName];
+      }
+    }
+  } else if (columnParts.length == 2) {
+    // table name given, retrieve exact column
+    tableName = columnParts[0];
+    columnName = columnParts[1];
+    actualValue = row[tableName][columnName];
+  } else {
+    return { status: UNKNOWN, checkOutput: 'Check "' + check + '" is malformed'};
+  }
+
+  // TODO: if operandToTest is LASTVALUE, replace accordingly
+
+  var checkOutput = columnNameToTest + ' = ' + actualValue + ' (' + columnNameToTest + ' ' + operatorToTest + ' ' + actualValue + ')';
+
+  // actually test check
+  if (operatorToTest == '<') {
+    if (actualValue < operandToTest) {
+      return { status: expectedStatus, checkOutput: checkOutput};
+    }
+  } else if (operatorToTest == '>') {
+    if (actualValue > operandToTest) {
+      return { status: expectedStatus, checkOutput: checkOutput};
+    }
+  } else if (operatorToTest == '=') {
+    if (actualValue == operandToTest) {
+      return { status: expectedStatus, checkOutput: checkOutput};
+    }
+  }
+  // TEST: type conversions, hint use typeof to see actual types
+  
+  return { status: OK, checkOutput: ''};
+}
+
+
 function testQuery(err, rows, fields, itemname) {
-  if (err) throw err;
-  // util.debug('rows: ' + util.inspect(rows));
-  // util.debug('fields: ' + util.inspect(fields));
-  // rows: [ { id: 1, sometext: 'bla' }, { id: 2, sometext: 'blubb' } ]
+  if (err) {
+    addLineToSpoolfile(3, itemname, '', 'Query could not be executed, error is: ' + err);
+    return;
+  }
 
   
   // test for exactly 1 row
@@ -96,52 +166,51 @@ function testQuery(err, rows, fields, itemname) {
   // prepare performance data
   var performanceData = '';
   for (var i = 0; i < fields.length; i++) {
-    util.debug(fields[i].table + '.' + fields[i].name + '=' + rows[0][fields[i].name]);
-    //values[fields[i]] = rows[0][fields[i]];
-    // TODO: remove spaces
-    performanceData += fields[i].table + '.' + fields[i].name + '=' + rows[0][fields[i].name] + '|';
+    performanceData += fields[i].table + '.' + fields[i].name + '=' + rows[0][fields[i].table][fields[i].name] + '|';
+    // TODO (Business Critical): No spaces allowed in performanceData, so clean up actualValueFromFrowRows
   }
-  
 
-  // loop through Critical conditions
+
+  var preliminaryResult = { status: OK, checkOutput: ''};
+  
+  // loop through Critical checks
   for (var k = 0; k < YAMLPartParsed['Critical'].length; k++) {
     
-    // try Critical conditions
-    
-    // parse condition
-    var condition = YAMLPartParsed['Critical'][k].split(' ');
-    var columnNameToTest = condition[0];
-    var operatorToTest = condition[1];
-    var operandToTest = condition[2];
-    
-    // TEST: malformed condition
+    // get check
+    var checkString = YAMLPartParsed['Critical'][k];
 
-    // TODO: if operandToTest is LASTVALUE, replace accordingly
 
-    // get column value from database
-    var actualValueFromRows = rows[0][columnNameToTest];
-    
-    // test condition
-    if (operatorToTest == '<') {
-      util.debug(actualValueFromRows + ' < ' + operandToTest + ' -> ' + (actualValueFromRows < operandToTest));
-      if (actualValueFromRows < operandToTest) {
-        // TODO (Business Critical): No spaces allowed in performanceData, so clean up actualValueFromFrowRows
-        addLineToSpoolfile(2, 'TODO:continueHereAndConfigureNameInConfigFileAndKeepMultipleRowsInMind', performanceData, columnNameToTest + '=' + actualValueFromRows);
-      }
-    } else if (operatorToTest == '>') {
-      util.debug(actualValueFromRows + ' > ' + operandToTest + ' -> ' + (actualValueFromRows > operandToTest));
-    } else if (operatorToTest == '=') {
-      util.debug(actualValueFromRows + ' = ' + operandToTest + ' -> ' + (actualValueFromRows == operandToTest));
+    // test check
+    var result = testCheck(checkString, rows[0], fields, CRITICAL);
+    if (result.status == UNKNOWN) {
+      
+      // UNKNOWN overrides all other results
+      preliminaryResult = result;
+    } else if (preliminaryResult.status < CRITICAL && result.status == CRITICAL) {
+      
+      // CRITICAL is used if preliminary status was "better" (OK or WARNING)
+      preliminaryResult = result;
     }
-    
-    // TEST: type conversions
-    
   }
+  
+  // TODO: Loop through WARNING checks
+  
+  // Write output
+  addLineToSpoolfile(preliminaryResult.status, itemname, performanceData,  preliminaryResult.checkOutput);
 }
+
+
+// *** MAIN starts here ***
 
 // Read config file
 var configFile = fs.readFileSync('/etc/squerier/squerier.conf');
 var configYAML = yaml.safeLoad(configFile);
+
+
+// this is the output file that is sent to check_mk
+// TODO: make configurable, put in right spot
+var spoolfileName = "testspoolfile";
+
 
 // connect to database
 var connection = mysql.createConnection({
@@ -152,13 +221,15 @@ var connection = mysql.createConnection({
   database : configYAML.database
 });
 
-// Find all query files
+// Find all query files, sort
 var queryFilesArray = fs.readdirSync('/etc/squerier/queries/');
-
-util.debug('Number of files found: ' + queryFilesArray.length);
-
-// sort query files
 queryFilesArray.sort();
+// util.debug('Number of files found: ' + queryFilesArray.length);
+
+
+// start spoolfile
+fs.writeFileSync(spoolfileName, "<<<local>>>\n");
+
 
 // loop through query files
 for (var i = 0; i < queryFilesArray.length; i++) {
@@ -170,9 +241,11 @@ for (var i = 0; i < queryFilesArray.length; i++) {
   var cleanedFilename = filename.slice(prefixEnd, extensionStart);
 
   // TEST: These filenames should work: 001_Test.sql, 001_Test, Test.sql, Test
+
   
   // read query file
   var queryFile = fs.readFileSync('/etc/squerier/queries/' + filename).toString();
+  
   
   // extract configuration part (between --- and ---)
   var YAMLstart = queryFile.indexOf('---\n');
@@ -181,19 +254,15 @@ for (var i = 0; i < queryFilesArray.length; i++) {
 
   // TEST: start and/or end not found
 
+
   // load config part as YAML
   var YAMLPartParsed = yaml.safeLoad(YAMLPart);
 
-  // util.debug(util.inspect(YAMLPartParsed));
-  // util.debug(YAMLPartParsed['Critical'][0]);
-  for (var p in YAMLPartParsed) {
-    // util.debug(p + '+' + typeof p);
-  }
-  
+
   // execute SQL stmt
-  connection.query(queryFile, testQueryFor(cleanedFilename));
-  
+  var options = {sql: queryFile, nestTables: true};
+  connection.query(options, testQueryFor(cleanedFilename));
 }
 
-
+// TODO: if connection end here is correct...
 connection.end();

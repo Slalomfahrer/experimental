@@ -29,8 +29,7 @@ The resultset must contain exactly one row with an arbitrary number of columns. 
 
 If the resultset has no rows or more than one row, the check is reported as UNKNOWN.
 
-First all CRITICAL checks are made against the columns in the resultset, then all WARNING checks. 
-If a check matches, the resulting status is set without evaluating any more checks (i.e. if one check is critical, the whole service goes CRITICAL).
+The checks are tested in the order CRITICAL, then WARNING. The first check to fail determines the end result, except if a later check produces an UNKNOWN result. If more than one check results in UNKNOWN, the last one is actually reported.
 
 TODO: What if column is missing?
 TODO: What if stmt has an error?

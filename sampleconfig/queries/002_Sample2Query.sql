@@ -1,5 +1,6 @@
-SELECT id, a.id 
-FROM test a;
+SELECT a.id, b.id 
+FROM test a, test b
+LIMIT 1;
 /*
 ---
 Critical:
